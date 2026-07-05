@@ -503,7 +503,22 @@ MCP는 저장 없이 해석만 수행
 
 - 경로 A 스킬맵 = 직무정보/NCS **표준역량**에 사람인·공채 **시장수요 메타**를 가중치로 얹어 산출. 개별 공고 본문에 의존하지 않으므로 개인 자격으로 구축 가능합니다.
 - 실제 공고 본문 기반 스킬 추출·번역은 **경로 B(사용자 붙여넣기)**가 담당합니다(합법).
-- 검증 상태: 엔드포인트 확정(`http://openapi.work.go.kr/opi/opi/opia/wantedApi.do`, 목록 `callTp=L`/상세 `callTp=D`). 직무정보 API 키 보유 → 실호출 확인 예정, 공채속보/공채기업정보는 추가 활용신청 후 필드 실측 예정. ([고용24 OpenAPI](https://www.work24.go.kr/cm/e/a/0110/selectOpenApiIntro.do), [oapi.saramin.co.kr](https://oapi.saramin.co.kr/guide/job-search))
+- **실측 완료(2026-07)**: 신규 고용24 게이트웨이 확정, 직무정보 NCS API 실호출 성공. 상세는 아래 "확정 API 콜" 표.
+
+### 확정 API 콜 (실측 완료, 2026-07)
+
+게이트웨이: `https://www.work24.go.kr/cm/openApi/call/wk/callOpenApiSvcInfo{코드}.do` · 인증: `authKey`(UUID 36자)
+
+| 서비스 | 코드 | 개인 | 핵심 파라미터 | 비고 |
+| --- | --- | --- | --- | --- |
+| 채용정보 목록/상세 | 210L01 / 210D01 | ❌ | callTp, wantedAuthNo | `개인회원 사용 불가` 응답 실측 |
+| 직업정보 능력/지식/환경 | 212D05 | ✅ | target=JOBDTL, jobGb=1, jobCd, dtlGb=5 | jobCd 선확보 필요(212 목록) |
+| **직무정보 표준직무기술서** | **215L01** | ✅ | **jobCont**(수행직무 텍스트), limit, returnType=JSON | **NCS 백본. 실호출 성공** |
+| 공채속보 목록/상세 | (코드 미확인) | ✅ | — | 대기업 수요 신호 |
+
+**215L01 응답 구조(실측):** `result[능력단위명]` → `ablt_unit`(능력단위코드), `ablt_def`(정의), `knwg_tchn_attd[]`(지식/기술/태도 라벨 배열), `job_lcfn`/`job_mcn`/`job_scfn`(대/중/소분류).
+
+> ⚠️ 215L01은 입력 텍스트를 NCS 능력단위에 **퍼지 매칭**함("백엔드 개발" → 무관 능력단위도 섞임). 배치 시 입력 직무 텍스트를 구체화하고 결과를 분류코드/키워드로 후필터해야 함. XML은 500 반환 → **`returnType=JSON` 사용.**
 
 ## 2단계. 공고 정규화
 
