@@ -112,6 +112,14 @@ def merge_top(records_lists, top=12, min_importance=0):
     return ranked[:top]
 
 
+def normalize_cert(s):
+    """자격증명 정규화: 깨진/변형 구분자(·∙・?/)를 ', '로 통일 → 중복 제거용."""
+    s = re.sub(r"\s*[·∙・‧⋅/?]\s*", ", ", s)
+    s = re.sub(r"\s*,\s*", ", ", s)
+    s = re.sub(r"\s+", " ", s).strip().strip(",").strip()
+    return s
+
+
 def extract_tech(texts):
     joined = " ".join(texts)
     found = []
@@ -134,7 +142,7 @@ def build(role_key):
         d05 = detail(key, jobCd, 5)
 
         duties += all_text(d02, "execJob")
-        certs += all_text(d03, "certNm")
+        certs += [normalize_cert(c) for c in all_text(d03, "certNm")]
         abil_lists.append(parse_records(d05, "jobAbil", "jobAblNm", "jobAblStatus", "jobAblCont"))
         know_lists.append(parse_records(d05, "Knwldg", "knwldgNm", "knwldgStatus", "knwldgCont"))
 
