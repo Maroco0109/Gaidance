@@ -488,8 +488,16 @@ MCP는 저장 없이 해석만 수행
 - 원티드처럼 공식 API가 없는 소스는 서버가 직접 긁지 않고 사용자가 가져옵니다.
 - 접속·열람 주체가 사용자이므로 데이터베이스제작자 권리/약관 문제에서 벗어납니다.
 
-워크넷은 등록일, 경력, 학력, 우대조건, 자격면허, 직종코드, 마감일자 등을 다룰 수 있어 구조화에 유리합니다. ([data.go.kr](https://www.data.go.kr/data/3038225/openapi.do?recommendDataYn=Y))
-사람인은 직무코드, 업종, 지역, 고용형태, 학력, 등록일/마감일 조건을 제공하므로 민간 채용공고 보강 소스로 쓸 수 있습니다. ([oapi.saramin.co.kr](https://oapi.saramin.co.kr/guide/job-search))
+### 수집 소스별 역할 (API 실측 반영)
+
+| 소스 | 본문(요구사항 텍스트) | 회사 필터 | MVP 역할 |
+| --- | --- | --- | --- |
+| 워크넷 상세 API | **제공** (구인인증번호로 상세 조회, 데이터셋명 "채용목록 및 상세정보") | 사업자등록번호 | 스킬 빈도·근거 추출의 1차 원료 |
+| 사람인 OAPI | **미제공** (메타데이터만, 본문은 URL 뒤, 최대 110건/페이지) | 없음(키워드 검색으로만) | 공고량·급여·회사 분포 등 시장 메타 보강 |
+
+- 스킬 추출 텍스트는 본문을 주는 **워크넷 상세**에서 뽑고, 사람인은 시장 규모·메타 보강에만 씁니다. (사람인 본문은 경로 B로만.)
+- 대기업(SKT·삼성SDS·현대모비스) 특정 공고는 두 API의 회사 필터가 약해 경로 A로는 정밀도가 낮으므로, **경로 B(사용자 붙여넣기)를 주 채널로** 씁니다.
+- 워크넷 상세의 요구사항 텍스트 세부 필드(모집요강/담당업무/자격요건 등)는 인증키 발급 후 실호출로 최종 확인이 필요합니다. ([data.go.kr](https://www.data.go.kr/data/3038225/openapi.do), [oapi.saramin.co.kr](https://oapi.saramin.co.kr/guide/job-search))
 
 ## 2단계. 공고 정규화
 
@@ -742,18 +750,47 @@ Portfolio Translator
 }
 ```
 
-## 직무별 집계
+## 직무별 집계 (경로 A 배치 산출물, 최종 스키마)
+
+이 JSON이 서버에 동봉되는 정적 스킬맵의 단위(직무 × 경력수준)입니다. 런타임 툴은 이 파일들만 읽어 추론합니다.
 
 ```json
 {
+  "schema_version": "1.0",
   "role": "AI Engineer",
   "career_level": "junior",
   "period": "2026-Q3",
-  "sample_size": 50,
-  "top_required": ["Python", "LLM", "RAG", "API"],
-  "top_preferred": ["Docker", "AWS", "Vector DB"],
-  "portfolio_recommendations": ["근거 기반 RAG 챗봇"]
+  "generated_at": "2026-07-05",
+  "refresh_cadence": "weekly",
+  "sources": {
+    "worknet": { "sample_size": 40, "body_available": true },
+    "saramin": { "sample_size": 120, "body_available": false }
+  },
+  "skills": [
+    {
+      "skill": "RAG",
+      "category": "Data/AI",
+      "frequency": 0.62,
+      "evidence_count": 25,
+      "requirement_type": "preferred",
+      "junior_provable": "high",
+      "overclaim_risk": "low",
+      "priority_score": 0.81,
+      "evidence_examples": ["RAG 시스템 개발 경험", "검색 증강 생성"]
+    }
+  ],
+  "portfolio_recommendations": ["근거 기반 RAG 챗봇"],
+  "notes": "스킬 빈도/근거는 본문 제공 소스(워크넷 상세)에서만 추출. 사람인은 공고량·회사 분포 등 메타 보강에만 사용."
 }
+```
+
+필드 원칙:
+
+```text
+- frequency / evidence_count / evidence_examples : 본문 있는 워크넷 상세에서만 채움
+- sources.*.body_available : 본문 유무를 명시해 근거 신뢰도 추적
+- priority_score : 7장 우선순위 공식(빈도+필수성+신입증명가능성+핵심성-과장위험)의 산출값
+- generated_at / period / refresh_cadence : 캐시 신선도 표기 → 응답에 "○○ 기준"으로 노출
 ```
 
 개인정보는 저장하지 않는 게 낫습니다. 사용자의 이력은 세션 단위로만 처리하고, 저장하더라도 명시적 동의 후 최소화해야 합니다.
@@ -818,7 +855,15 @@ Security: 보안, 정보보안, 보안관제, 취약점, SOC
 
 # 13. 예선 제출용 기능 범위
 
-예선에서는 아래 3가지만 보여줘도 충분합니다.
+예선에서는 아래 3가지만 보여줘도 충분합니다. 5개 툴 설계 중 예선 스코프는 **3개 툴로 고정**합니다.
+
+| 예선 기능 | 담당 툴 | 데이터 경로 |
+| --- | --- | --- |
+| 1. 직무 요구역량 분석 | `build_role_skill_map` (캐시 조회) | 경로 A (정적 스킬맵) |
+| 2. 포트폴리오 번역 | `translate_to_junior_portfolio` | 입력 기반 추론 (+경로 B 붙여넣기) |
+| 3. 내 상태와 비교 | `compare_user_profile` | 입력 기반 추론 (+경로 A 스킬맵 대조) |
+
+`search_dev_jobs`, `extract_job_requirements`는 배치(경로 A) 내부 파이프라인으로 돌리고, **예선 런타임 툴로는 노출하지 않습니다.** 이러면 실시간 API 의존이 없어 데모가 안 죽습니다.
 
 ## 1. 직무 요구역량 분석
 
